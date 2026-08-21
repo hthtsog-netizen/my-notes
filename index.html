@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>나의 메모장</title>
+  <title>나의 온라인 메모장</title>
 
   <style>
     body {
@@ -18,33 +18,41 @@
       text-align: center;
     }
 
-    textarea {
+    input, textarea {
       width: 100%;
-      height: 180px;
-      padding: 15px;
       box-sizing: border-box;
-      font-size: 16px;
+      padding: 12px;
+      margin-top: 8px;
       border: 1px solid #ccc;
-      border-radius: 10px;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    textarea {
+      height: 150px;
       resize: vertical;
     }
 
     button {
-      margin-top: 10px;
-      padding: 10px 18px;
+      padding: 10px 16px;
+      margin: 8px 4px 0 0;
       border: none;
       border-radius: 8px;
       cursor: pointer;
       font-size: 15px;
     }
 
-    .save {
+    .primary {
       background: #333;
       color: white;
     }
 
-    .delete {
+    .danger {
       background: #ddd;
+    }
+
+    .hidden {
+      display: none;
     }
 
     .memo {
@@ -55,59 +63,316 @@
       white-space: pre-wrap;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
+
+    #status {
+      margin-top: 15px;
+      font-weight: bold;
+    }
   </style>
 </head>
 
 <body>
 
-  <h1>📝 나의 메모장</h1>
+  <h1>📝 나의 온라인 메모장</h1>
 
-  <textarea id="memoInput" placeholder="여기에 메모를 입력하세요..."></textarea>
+  <!-- 로그인 영역 -->
+  <div id="authArea">
+    <h3>로그인</h3>
 
-  <br>
+    <input id="email" type="email" placeholder="이메일">
+    <input id="password" type="password" placeholder="비밀번호">
 
-  <button class="save" onclick="saveMemo()">💾 저장</button>
-  <button class="delete" onclick="deleteMemo()">🗑️ 삭제</button>
+    <button class="primary" onclick="signUp()">회원가입</button>
+    <button onclick="signIn()">로그인</button>
 
-  <div id="memoDisplay" class="memo" style="display:none;"></div>
+    <p id="authMessage"></p>
+  </div>
 
-  <script>
-    const input = document.getElementById("memoInput");
-    const display = document.getElementById("memoDisplay");
+  <!-- 메모 영역 -->
+  <div id="memoArea" class="hidden">
 
-    function loadMemo() {
-      const savedMemo = localStorage.getItem("myMemo");
+    <p>
+      로그인 계정:
+      <strong id="userEmail"></strong>
+    </p>
 
-      if (savedMemo) {
-        input.value = savedMemo;
-        display.textContent = savedMemo;
-        display.style.display = "block";
+    <textarea
+      id="memoInput"
+      placeholder="여기에 메모를 입력하세요..."
+    ></textarea>
+
+    <button class="primary" onclick="saveMemo()">💾 저장</button>
+    <button class="danger" onclick="deleteMemo()">🗑️ 삭제</button>
+    <button onclick="signOut()">로그아웃</button>
+
+    <p id="status"></p>
+
+    <div id="memoDisplay" class="memo hidden"></div>
+
+  </div>
+
+  <script type="module">
+
+    /*
+      Supabase 연결
+
+      아래 두 값은 나중에 Vercel 환경변수와 연결합니다.
+    */
+
+    const SUPABASE_URL = "YOUR_SUPABASE_URL";
+    const SUPABASE_KEY = "YOUR_SUPABASE_PUBLISHABLE_KEY";
+
+    import {
+      createClient
+    } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+    const supabase = createClient(
+      SUPABASE_URL,
+      SUPABASE_KEY
+    );
+
+    const authArea = document.getElementById("authArea");
+    const memoArea = document.getElementById("memoArea");
+    const userEmail = document.getElementById("userEmail");
+
+    const emailInput = document.getElementById("email");
+    const passwordInput = document.getElementById("password");
+
+    const memoInput = document.getElementById("memoInput");
+    const memoDisplay = document.getElementById("memoDisplay");
+
+    const authMessage = document.getElementById("authMessage");
+    const status = document.getElementById("status");
+
+    let currentUser = null;
+
+    async function updateUI() {
+
+      const {
+        data: {
+          user
+        }
+      } = await supabase.auth.getUser();
+
+      currentUser = user;
+
+      if (user) {
+
+        authArea.classList.add("hidden");
+        memoArea.classList.remove("hidden");
+
+        userEmail.textContent = user.email;
+
+        loadMemo();
+
+      } else {
+
+        authArea.classList.remove("hidden");
+        memoArea.classList.add("hidden");
+
       }
     }
 
-    function saveMemo() {
-      const memo = input.value.trim();
+    window.signUp = async function() {
 
-      if (memo === "") {
-        alert("메모를 입력해주세요.");
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+
+      if (!email || !password) {
+        authMessage.textContent =
+          "이메일과 비밀번호를 입력해주세요.";
         return;
       }
 
-      localStorage.setItem("myMemo", memo);
-      display.textContent = memo;
-      display.style.display = "block";
+      const {
+        error
+      } = await supabase.auth.signUp({
+        email,
+        password
+      });
 
-      alert("메모가 저장되었습니다!");
+      if (error) {
+
+        authMessage.textContent =
+          "회원가입 오류: " + error.message;
+
+        return;
+      }
+
+      authMessage.textContent =
+        "회원가입이 완료되었습니다. 이메일 확인이 필요한 경우 이메일을 확인해주세요.";
+
+    };
+
+    window.signIn = async function() {
+
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+
+      const {
+        error
+      } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+
+        authMessage.textContent =
+          "로그인 오류: " + error.message;
+
+        return;
+      }
+
+      authMessage.textContent =
+        "로그인되었습니다.";
+
+      updateUI();
+
+    };
+
+    window.signOut = async function() {
+
+      await supabase.auth.signOut();
+
+      memoInput.value = "";
+      memoDisplay.textContent = "";
+
+      updateUI();
+
+    };
+
+    window.saveMemo = async function() {
+
+      if (!currentUser) {
+        return;
+      }
+
+      const content = memoInput.value.trim();
+
+      if (!content) {
+
+        status.textContent =
+          "메모를 입력해주세요.";
+
+        return;
+      }
+
+      const {
+        error
+      } = await supabase
+        .from("notes")
+        .insert({
+          content: content,
+          user_id: currentUser.id
+        });
+
+      if (error) {
+
+        status.textContent =
+          "저장 오류: " + error.message;
+
+        return;
+      }
+
+      status.textContent =
+        "메모가 온라인에 저장되었습니다. ☁️";
+
+      memoInput.value = "";
+
+      loadMemo();
+
+    };
+
+    async function loadMemo() {
+
+      if (!currentUser) {
+        return;
+      }
+
+      const {
+        data,
+        error
+      } = await supabase
+        .from("notes")
+        .select("*")
+        .eq("user_id", currentUser.id)
+        .order("created_at", {
+          ascending: false
+        });
+
+      if (error) {
+
+        status.textContent =
+          "불러오기 오류: " + error.message;
+
+        return;
+      }
+
+      memoDisplay.innerHTML = "";
+
+      if (!data || data.length === 0) {
+
+        memoDisplay.classList.add("hidden");
+
+        return;
+      }
+
+      memoDisplay.classList.remove("hidden");
+
+      data.forEach(note => {
+
+        const div = document.createElement("div");
+
+        div.className = "memo";
+
+        div.textContent =
+          note.content;
+
+        memoDisplay.appendChild(div);
+
+      });
+
     }
 
-    function deleteMemo() {
-      localStorage.removeItem("myMemo");
-      input.value = "";
-      display.textContent = "";
-      display.style.display = "none";
-    }
+    window.deleteMemo = async function() {
 
-    loadMemo();
+      if (!currentUser) {
+        return;
+      }
+
+      const {
+        error
+      } = await supabase
+        .from("notes")
+        .delete()
+        .eq("user_id", currentUser.id);
+
+      if (error) {
+
+        status.textContent =
+          "삭제 오류: " + error.message;
+
+        return;
+      }
+
+      memoInput.value = "";
+      memoDisplay.innerHTML = "";
+      memoDisplay.classList.add("hidden");
+
+      status.textContent =
+        "내 메모가 삭제되었습니다.";
+
+    };
+
+    supabase.auth.onAuthStateChange(
+      () => {
+        updateUI();
+      }
+    );
+
+    updateUI();
+
   </script>
 
 </body>
